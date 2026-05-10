@@ -2,6 +2,7 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import * as cheerio from "cheerio";
+import { saveHandles, getAllStoredHandles } from "./db.js";
 
 async function startServer() {
   const app = express();
@@ -73,12 +74,25 @@ async function startServer() {
         }
       });
 
+      if (items.length > 0) {
+        saveHandles(items);
+      }
+
       res.json({
         items,
         links: [...new Set(allLinks)]
       });
     } catch (error: any) {
       console.error("Search error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Stored handles endpoint
+  app.get("/api/handles", (_req, res) => {
+    try {
+      res.json(getAllStoredHandles());
+    } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
   });
