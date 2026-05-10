@@ -54,3 +54,7 @@ export function saveHandles(items: { handle: string; link: string; followers: st
 export function getAllStoredHandles(): HandleRow[] {
   return getAllHandles.all();
 }
+
+export function clearAllHandles(): void {
+  db.prepare('DELETE FROM handles').run();
+}

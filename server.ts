@@ -2,7 +2,7 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import * as cheerio from "cheerio";
-import { saveHandles, getAllStoredHandles } from "./db.js";
+import { saveHandles, getAllStoredHandles, clearAllHandles } from "./db.js";
 
 async function startServer() {
   const app = express();
@@ -92,6 +92,16 @@ async function startServer() {
   app.get("/api/handles", (_req, res) => {
     try {
       res.json(getAllStoredHandles());
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Clear all handles
+  app.delete("/api/handles", (_req, res) => {
+    try {
+      clearAllHandles();
+      res.json({ ok: true });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }

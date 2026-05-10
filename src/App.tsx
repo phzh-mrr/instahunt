@@ -17,6 +17,7 @@ export default function App() {
   const [results, setResults] = useState<{ items: { handle: string; link: string; followers: string | null }[]; links: string[] } | null>(null);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmClear, setConfirmClear] = useState(false);
   const [logs, setLogs] = useState<{ time: string; msg: string; type: 'info' | 'raw' | 'proc' | 'extract' | 'error' }[]>([]);
 
   const query = composeQuery(nameQuery, mediaQuery, locationQuery, extraQuery);
@@ -60,6 +61,18 @@ export default function App() {
     }
   };
 
+  const clearDb = async () => {
+    try {
+      const res = await fetch('/api/handles', { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed to clear database');
+      addLog('Database cleared.', 'info');
+    } catch (err: any) {
+      addLog(`ERROR: ${err.message}`, 'error');
+    } finally {
+      setConfirmClear(false);
+    }
+  };
+
   const exportFromDb = async () => {
     try {
       const response = await fetch('/api/handles');
@@ -97,6 +110,29 @@ export default function App() {
 
   return (
     <div className="flex flex-col h-screen bg-slate-900 text-slate-100 font-sans overflow-hidden">
+      {/* Confirm Clear Dialog */}
+      {confirmClear && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-slate-800 border border-red-700/50 rounded-lg shadow-xl p-6 max-w-sm w-full mx-4">
+            <h2 className="text-red-400 font-bold text-lg mb-2">Clear Database?</h2>
+            <p className="text-slate-300 text-sm mb-6">This will permanently delete all stored handles from the database. This action cannot be undone.</p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setConfirmClear(false)}
+                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm font-semibold rounded border border-slate-600 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={clearDb}
+                className="px-4 py-2 bg-red-700 hover:bg-red-600 text-white text-sm font-semibold rounded border border-red-600 transition-colors"
+              >
+                Yes, Clear All
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Top Navigation Bar */}
       <header className="h-16 border-b border-slate-700 bg-slate-800 flex items-center justify-between px-6 shrink-0 z-20">
         <div className="flex items-center gap-3">
@@ -114,6 +150,12 @@ export default function App() {
               {loading ? 'Scraper Active' : 'Engine Ready'}
             </span>
           </div>
+          <button
+            onClick={() => setConfirmClear(true)}
+            className="px-4 py-2 bg-red-900/60 hover:bg-red-800/80 text-red-300 text-sm font-semibold rounded border border-red-700/50 transition-colors"
+          >
+            Clear DB
+          </button>
           <button 
             onClick={exportFromDb}
             className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm font-semibold rounded border border-slate-600 transition-colors"
