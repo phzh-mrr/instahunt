@@ -1,0 +1,6 @@
+{
+  "name": "InstaHunt",
+  "description": "Extract Instagram handles from DuckDuckGo search results for specific terms.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
