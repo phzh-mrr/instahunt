@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Search, Instagram, Copy, Loader2, Filter, ExternalLink, Activity, Terminal, ShieldAlert, Database } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { Search, Instagram, Copy, Loader2, Filter, ExternalLink, Activity, Terminal, ShieldAlert, Database, Upload, CheckCircle2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 function composeQuery(name: string, media: string, location: string, extra: string) {
@@ -18,6 +18,8 @@ export default function App() {
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [queue, setQueue] = useState<{ name: string; done: boolean }[]>([]);
+  const csvInputRef = useRef<HTMLInputElement>(null);
   const [logs, setLogs] = useState<{ time: string; msg: string; type: 'info' | 'raw' | 'proc' | 'extract' | 'error' }[]>([]);
 
   const query = composeQuery(nameQuery, mediaQuery, locationQuery, extraQuery);
@@ -53,12 +55,34 @@ export default function App() {
       addLog(`EXTRACT: Filtered internal paths. ${data.items.length} unique handles identified.`, 'extract');
       
       setResults(data);
+      setQueue(prev => prev.map(item => item.name === nameQuery ? { ...item, done: true } : item));
     } catch (err: any) {
       setError(err.message);
       addLog(`ERROR: ${err.message}`, 'error');
     } finally {
       setLoading(false);
     }
+  };
+
+  const loadCsv = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string;
+      const lines = text.split(/\r?\n/).filter(Boolean);
+      if (!lines.length) return;
+      const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+      const nameIdx = headers.indexOf('name');
+      if (nameIdx === -1) { addLog('CSV has no "name" column', 'error'); return; }
+      const names = lines.slice(1)
+        .map(l => l.split(',')[nameIdx]?.trim())
+        .filter(Boolean) as string[];
+      setQueue(names.map(name => ({ name, done: false })));
+      addLog(`CSV loaded: ${names.length} names queued`, 'info');
+    };
+    reader.readAsText(file);
+    e.target.value = '';
   };
 
   const clearDb = async () => {
@@ -170,6 +194,15 @@ export default function App() {
         <aside className="w-80 border-r border-slate-700 bg-slate-800/50 p-6 flex flex-col gap-6 shrink-0">
           <div>
             <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-4">Search Configuration</label>
+            <input ref={csvInputRef} type="file" accept=".csv" onChange={loadCsv} className="hidden" />
+            <button
+              type="button"
+              onClick={() => csvInputRef.current?.click()}
+              className="w-full mb-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm font-semibold rounded border border-slate-600 transition-colors flex items-center justify-center gap-2"
+            >
+              <Upload size={14} />
+              Load CSV
+            </button>
             <form onSubmit={handleSearch} className="space-y-4">
               <div>
                 <label className="text-[11px] text-slate-400 block mb-2 uppercase font-medium">Name</label>
@@ -223,6 +256,36 @@ export default function App() {
               </button>
             </form>
           </div>
+
+          {queue.length > 0 && (
+            <div>
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-3">
+                CSV Queue ({queue.filter(i => !i.done).length} / {queue.length} remaining)
+              </label>
+              <div className="space-y-1 max-h-52 overflow-y-auto custom-scrollbar pr-1">
+                {queue.map((item, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => setNameQuery(item.name)}
+                    className={`w-full text-left px-3 py-2 rounded text-xs font-mono transition-colors border flex items-center gap-2 ${
+                      item.done
+                        ? 'bg-slate-900/30 border-slate-800 text-slate-600'
+                        : nameQuery === item.name
+                        ? 'bg-orange-600/20 border-orange-500/50 text-orange-300'
+                        : 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800 hover:border-slate-600'
+                    }`}
+                  >
+                    {item.done
+                      ? <CheckCircle2 size={12} className="shrink-0 text-emerald-600" />
+                      : <span className="text-slate-600 text-[10px] shrink-0">{String(idx + 1).padStart(2, '0')}</span>
+                    }
+                    <span className={item.done ? 'line-through' : ''}>{item.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="space-y-4 mt-4">
             <div className="flex items-center justify-between">
