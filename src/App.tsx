@@ -60,12 +60,39 @@ export default function App() {
     }
   };
 
-  const copyToClipboard = () => {
-    if (!results?.items.length) return;
-    const text = results.items.map(i => i.handle).join('\n');
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const exportFromDb = async () => {
+    try {
+      const response = await fetch('/api/handles');
+      if (!response.ok) throw new Error('Failed to fetch stored handles');
+      const rows: { handle: string; link: string; followers: string | null; search_count: number; first_seen: number; last_seen: number }[] = await response.json();
+      if (!rows.length) return;
+
+      const header = 'handle,link,followers,search_count,first_seen,last_seen';
+      const csvRows = rows.map(r =>
+        [
+          r.handle,
+          r.link,
+          r.followers ?? '',
+          r.search_count,
+          new Date(r.first_seen).toISOString(),
+          new Date(r.last_seen).toISOString(),
+        ].join(',')
+      );
+      const csv = [header, ...csvRows].join('\n');
+
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `instahunt_export_${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err: any) {
+      addLog(`ERROR: ${err.message}`, 'error');
+    }
   };
 
   return (
@@ -88,11 +115,10 @@ export default function App() {
             </span>
           </div>
           <button 
-            onClick={copyToClipboard}
-            disabled={!results?.items.length}
-            className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm font-semibold rounded border border-slate-600 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            onClick={exportFromDb}
+            className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm font-semibold rounded border border-slate-600 transition-colors"
           >
-            {copied ? 'Copied!' : 'Export List'}
+            {copied ? 'Exported!' : 'Export List'}
           </button>
         </div>
       </header>
