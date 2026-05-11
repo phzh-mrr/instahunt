@@ -66,8 +66,11 @@ async function startServer() {
           ) {
             seenHandles.add(handle.toLowerCase());
 
-            const followerMatch = snippet.match(/([\d.]+[KMB]?) Followers/i);
-            const followers = followerMatch ? followerMatch[1] : null;
+            //const followerMatch = snippet.match(/([\d.]+[KMB]?) Followers/i);
+            //const followers = followerMatch ? followerMatch[1] : null;
+
+            const followerMatch = snippet.match(/([\d.,]+[KMB]?) Followers/i);
+            const followers = followerMatch ? followerMatch[1].replace(/,/g, "") : null;
 
             items.push({ handle, link: href, followers });
           }
