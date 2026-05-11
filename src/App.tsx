@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Search, Instagram, Copy, Loader2, Filter, ExternalLink, Activity, Terminal, ShieldAlert, Database, Upload, CheckCircle2 } from 'lucide-react';
+import { Search, Instagram, Copy, Loader2, Filter, ExternalLink, Activity, Terminal, ShieldAlert, Database, Upload, CheckCircle2, Play, Pause, Square } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 function composeQuery(name: string, media: string, location: string, extra: string) {
@@ -20,6 +20,22 @@ export default function App() {
   const [confirmClear, setConfirmClear] = useState(false);
   const [queue, setQueue] = useState<{ name: string; done: boolean }[]>([]);
   const csvInputRef = useRef<HTMLInputElement>(null);
+  const [batchRunning, setBatchRunning] = useState(false);
+  const [batchPaused, setBatchPaused] = useState(false);
+  const [delayMin, setDelayMin] = useState(4);
+  const [delayMax, setDelayMax] = useState(8);
+  const delayMinRef = useRef(4);
+  const delayMaxRef = useRef(8);
+  delayMinRef.current = delayMin;
+  delayMaxRef.current = delayMax;
+  const batchAbortRef = useRef(false);
+  const batchPausedRef = useRef(false);
+  const mediaQueryRef = useRef(mediaQuery);
+  const locationQueryRef = useRef(locationQuery);
+  const extraQueryRef = useRef(extraQuery);
+  mediaQueryRef.current = mediaQuery;
+  locationQueryRef.current = locationQuery;
+  extraQueryRef.current = extraQuery;
   const [logs, setLogs] = useState<{ time: string; msg: string; type: 'info' | 'raw' | 'proc' | 'extract' | 'error' }[]>([]);
 
   const query = composeQuery(nameQuery, mediaQuery, locationQuery, extraQuery);
@@ -29,40 +45,76 @@ export default function App() {
     setLogs(prev => [...prev.slice(-4), { time, msg, type }]);
   };
 
-  const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!query.trim()) return;
-
+  const executeSearch = async (queryStr: string, nameForQueue: string) => {
     setLoading(true);
     setError(null);
     setResults(null);
-    addLog(`Initiating search for: "${query}"`, 'info');
-
+    addLog(`Initiating search for: "${queryStr}"`, 'info');
     try {
       addLog('Fetching result set from duckduckgo.com...', 'info');
       const response = await fetch('/api/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query }),
+        body: JSON.stringify({ query: queryStr }),
       });
-
       if (!response.ok) throw new Error('Search failed. Please try again.');
-
       const data = await response.json();
-      
       addLog(`RAW: Found ${data.links.length} candidate links containing "instagram.com"`, 'raw');
       addLog('PROC: Stripping Google redirect wrappers... OK', 'proc');
       addLog(`EXTRACT: Filtered internal paths. ${data.items.length} unique handles identified.`, 'extract');
-      
       setResults(data);
-      setQueue(prev => prev.map(item => item.name === nameQuery ? { ...item, done: true } : item));
+      setQueue(prev => prev.map(item => item.name === nameForQueue ? { ...item, done: true } : item));
+      return data;
     } catch (err: any) {
       setError(err.message);
       addLog(`ERROR: ${err.message}`, 'error');
+      return null;
     } finally {
       setLoading(false);
     }
   };
+
+  const handleSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!query.trim()) return;
+    await executeSearch(query, nameQuery);
+  };
+
+  const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+
+  const runBatch = async () => {
+    batchAbortRef.current = false;
+    batchPausedRef.current = false;
+    setBatchRunning(true);
+    setBatchPaused(false);
+    const snapshot = queue.filter(i => !i.done);
+    for (let i = 0; i < snapshot.length; i++) {
+      if (batchAbortRef.current) break;
+      while (batchPausedRef.current && !batchAbortRef.current) { await sleep(300); }
+      if (batchAbortRef.current) break;
+      const item = snapshot[i];
+      setNameQuery(item.name);
+      const q = composeQuery(item.name, mediaQueryRef.current, locationQueryRef.current, extraQueryRef.current);
+      addLog(`Batch [${i + 1}/${snapshot.length}]: "${item.name}"`, 'info');
+      await executeSearch(q, item.name);
+      if (i < snapshot.length - 1 && !batchAbortRef.current) {
+        const jitterMs = (delayMinRef.current + Math.random() * Math.max(0, delayMaxRef.current - delayMinRef.current)) * 1000;
+        addLog(`Waiting ${(jitterMs / 1000).toFixed(1)}s...`, 'info');
+        const end = Date.now() + jitterMs;
+        while (Date.now() < end && !batchAbortRef.current) {
+          while (batchPausedRef.current && !batchAbortRef.current) { await sleep(300); }
+          await sleep(100);
+        }
+      }
+    }
+    if (!batchAbortRef.current) addLog('Batch complete.', 'info');
+    setBatchRunning(false);
+    setBatchPaused(false);
+  };
+
+  const pauseBatch = () => { batchPausedRef.current = true; setBatchPaused(true); addLog('Batch paused.', 'info'); };
+  const resumeBatch = () => { batchPausedRef.current = false; setBatchPaused(false); addLog('Batch resumed.', 'info'); };
+  const killBatch = () => { batchAbortRef.current = true; batchPausedRef.current = false; setBatchRunning(false); setBatchPaused(false); addLog('Batch stopped by user.', 'error'); };
 
   const loadCsv = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -191,7 +243,7 @@ export default function App() {
 
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar Configuration */}
-        <aside className="w-80 border-r border-slate-700 bg-slate-800/50 p-6 flex flex-col gap-6 shrink-0">
+        <aside className="w-80 border-r border-slate-700 bg-slate-800/50 p-6 flex flex-col gap-6 shrink-0 overflow-y-auto custom-scrollbar">
           <div>
             <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-4">Search Configuration</label>
             <input ref={csvInputRef} type="file" accept=".csv" onChange={loadCsv} className="hidden" />
@@ -287,22 +339,63 @@ export default function App() {
             </div>
           )}
 
-          <div className="space-y-4 mt-4">
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-slate-300">Deep Link Extraction</span>
-              <div className="w-8 h-4 bg-orange-600 rounded-full flex items-center px-1">
-                <div className="w-2.5 h-2.5 bg-white rounded-full ml-auto"></div>
+          <div className="mt-auto space-y-3">
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block">
+                Delay between searches
+              </label>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-slate-500 w-6">min</span>
+                <input
+                  type="range" min={1} max={30} step={1}
+                  value={delayMin}
+                  onChange={e => { const v = Number(e.target.value); setDelayMin(v); if (v > delayMax) setDelayMax(v); }}
+                  disabled={batchRunning}
+                  className="flex-1 accent-orange-500"
+                />
+                <span className="text-xs font-mono text-orange-400 w-6 text-right">{delayMin}s</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-slate-500 w-6">max</span>
+                <input
+                  type="range" min={1} max={30} step={1}
+                  value={delayMax}
+                  onChange={e => { const v = Number(e.target.value); setDelayMax(v); if (v < delayMin) setDelayMin(v); }}
+                  disabled={batchRunning}
+                  className="flex-1 accent-orange-500"
+                />
+                <span className="text-xs font-mono text-orange-400 w-6 text-right">{delayMax}s</span>
+              </div>
+              <div className="flex gap-2 mt-1">
+                {!batchRunning ? (
+                  <button
+                    type="button"
+                    onClick={runBatch}
+                    disabled={queue.filter(i => !i.done).length === 0}
+                    className="flex-1 py-2 bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold rounded border border-orange-500 transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-1"
+                  >
+                    <Play size={12} /> Run All
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={batchPaused ? resumeBatch : pauseBatch}
+                      className="flex-1 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-bold rounded border border-slate-600 transition-colors flex items-center justify-center gap-1"
+                    >
+                      {batchPaused ? <><Play size={12} /> Resume</> : <><Pause size={12} /> Pause</>}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={killBatch}
+                      className="px-3 py-2 bg-red-900/60 hover:bg-red-800/80 text-red-300 text-xs font-bold rounded border border-red-700/50 transition-colors flex items-center gap-1"
+                    >
+                      <Square size={12} /> Stop
+                    </button>
+                  </>
+                )}
               </div>
             </div>
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-slate-300">Auth Snippet Parsing</span>
-              <div className="w-8 h-4 bg-orange-600 rounded-full flex items-center px-1">
-                <div className="w-2.5 h-2.5 bg-white rounded-full ml-auto"></div>
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-auto">
             <div className="p-4 bg-slate-900 border border-slate-700 rounded-lg">
               <p className="text-[10px] text-slate-500 mb-2 font-bold uppercase tracking-widest">Engine Status</p>
               <div className="flex items-center justify-between mb-1">
